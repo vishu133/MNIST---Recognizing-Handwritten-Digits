@@ -1,0 +1,192 @@
+---
+title: "HW7-Solutions"
+date: "March 1, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+For this homework assignment we’re building three models to identify digits (0 to 9) from
+handwritten images.</br>
+
+1.kNN (Nearest Neighbor)</br>
+2.SVM (Support Vector Machines)</br>
+3.Random Forest</br>
+
+Our process will be as follows</br>
+1. Load in our data do any pre-processing if necessary</br>
+2. Build our models</br>
+3. Evaluate performance through cross validation</br>
+4. Apply them to our test dataset</br>
+5. Submit to Kaggle</br>
+```{r load Package, message =FALSE}
+EnsurePackage <- function(x) {
+  x <- as.character(x)
+  if (!require(x,character.only = T))
+    install.packages(x,repos = "https://cran.cnr.berkeley.edu/")
+  require(x,character.only = T)
+  
+}
+
+EnsurePackage("caret") # set of functions that attempt to streamline the process for creating predictive models
+EnsurePackage("randomForest") #Recursive Partitioning And Regression Trees
+EnsurePackage("e1071") #Functions for latent class analysis, short time Fourier transform, fuzzy clustering, support vector machines, shortest path computation, bagged clustering, naive Bayes classifier
+EnsurePackage("tidyverse") #Manipulating dataset
+EnsurePackage("factoextra") #Visualization of PCA
+```
+
+## Exploratory Analysis and Preprocessing
+
+Our exploratory analysis will be what was done in our previous assignment.For preprocessing we will try using PCA(principal component analysis) which can reduce the size of features to be used. This will improve our computation time and have minimal detrimental effect on the model accuracy.
+
+```{r exploreadprocess, echo=FALSE,message=FALSE}
+set.seed(8)
+trn_sample <- read.csv("Kaggle-digit-train-sample-small-1400.csv")
+mnst_test <- read.csv("Kaggle-digit-test.csv")
+mnst_train <- read.csv("Kaggle-digit-train.csv")
+test_sample <- read.csv("Kaggle-digit-test-sample1000.csv")
+
+#Convert the target variable into factor
+trn_sample$label <- as.factor(trn_sample$label)
+test_sample$label <- as.factor(test_sample$label)
+mnst_train$label <- as.factor(mnst_train$label)
+mnst_test$label <- as.factor(mnst_test$label)
+
+```
+
+```{r explore,message=FALSE}
+#generate barplot to see data distribution
+barplot(table(trn_sample[,1]), col=heat.colors(10, 0.5), 
+        main="n digits in mnist.train")
+
+#generate a plot to see value distribution in each cell
+pixels_gathered <- gather(trn_sample,key = label)
+
+ggplot(pixels_gathered, aes(value)) +
+  geom_histogram(binwidth = 50)
+```
+
+PCA captures the variations present in the dataset by compressing original variables into small number of principal components that are capable of explaining most of the variance in data. This helps the model predict data without spending too much resources on learning lots of variables that have less or no impact on the target variable. We will first visualize how many variables are needed to capture the full data.
+
+```{r PCA,message=FALSE}
+full_pca = prcomp(trn_sample[,-1])
+
+# Plot PCA components and the variation they cover
+fviz_eig(full_pca,ncp = 15,addlabels = T)
+```
+
+</br> the graph says that 15 components of PCA would be able to explain 55% of variance.It would be interesting to know how many components does the dataset retain once we run PCA function on the dataset.
+```{r PCAprocess, message=FALSE}
+set.seed(8)
+#Below function will remove zero variance, near zero variance variables and pca will find gather components that explain 98% variablility in dataset.
+trn_processed <- preProcess(trn_sample,method = c("zv","nzv","pca"),thresh = 0.98)
+trn_samplef <- predict(trn_processed,trn_sample)
+
+trn_full_proc <- preProcess(mnst_train,method = c("zv","nzv","pca"),thresh = 0.98)
+trn_full <- predict(trn_full_proc,mnst_train)
+
+test_full_proc <- preProcess(mnst_test,method = c("zv","nzv"),thresh = 0.98)
+test_full <- predict(trn_full_proc,mnst_test)
+
+#Test data
+
+```
+</br> After doing PCA, we are down to 149-150 components. These can capture 98 % of the variance in data. Lets train our models!
+
+
+##KNN
+
+```{r knn,message=FALSE}
+set.seed(8)
+#Knn with 3-fold cross validation
+model_knn <-train(label ~ ., data = trn_samplef, method = "knn",
+trControl = trainControl(method = "cv", number = 3))
+
+plot(model_knn)
+```
+<br> According to the plot, k=5 neighbours is the best option. After successful execution of the sample dataset, We will now train and test knn on the bigger dataset
+
+```{r knn fulltrain, message=FALSE}
+# knn_model_f <- train(label ~ ., data = trn_full, method = "knn",
+# tuneGrid = data.frame(k = 5),
+# trControl = trainControl(method = "cv", number = 3))
+
+```
+
+```{r knn predic, message=FALSE}
+# knn_pred <- predict(knn_model_f, newdata = test_full)
+
+submission_knn <- data.frame(ImageId =1:nrow(test_full), 
+                            Label = knn_pred)
+write.csv(submission_knn, file='submission_knn_hw7.csv', row.names=FALSE, quote=FALSE)
+```
+<br> I submitted it on Kaggle and KNN achieved 96% accuracy.
+![Kaggle Submission](C:\Users\vishu\OneDrive - Syracuse University\Pictures\knn.png)
+
+## Random Forest
+Train the sample
+```{r randomforest, message=FALSE}
+model_rf <- train(label ~ ., data = trn_samplef, method = "rf",
+tuneGrid = data.frame(mtry = seq(5:15)),
+trControl = trainControl(method = "cv", number = 3))
+
+plot(model_rf)
+
+```
+</br>According to plot best value for mtry = 9.
+Train and test the full dataset
+```{r rffull, message=FALSE}
+set.seed(8)
+# model_rf_f <- train(label ~ ., data = trn_full, method = "rf",
+# tuneGrid = data.frame(mtry = 9),
+# trControl = trainControl(method = "cv", number = 3))
+
+
+```
+
+```{r predict, message=FALSE}
+# rf_pred <- predict(model_rf_f, newdata = test_full)
+
+submission_rf <- data.frame(ImageId =1:nrow(test_full), 
+                            Label = rf_pred)
+write.csv(submission_rf, file='submission_rf_hw7.csv', row.names=FALSE, quote=FALSE)
+```
+</br> Random forest gave us a prediction accuracy of 94% on Kaggle.
+![Kaggle Submission](C:\Users\vishu\OneDrive - Syracuse University\Pictures\random.png)
+
+## SVM - Support Vector Machines
+```{r svmtrain, message=FALSE}
+#3 - fold cross validation
+model_svm <- train(label ~ ., data = trn_samplef,
+method = "svmLinear",trControl = trainControl(method = "cv", number = 3)) 
+model_svm
+plot(model_svm)
+```
+
+</br> According to the output the best value is for cost = 1. Applying the tuned model for the full train and test data 
+```{r svm fulltrn, message=FALSE}
+# model_svm_f <- train(label ~ ., data = trn_full,
+# method = "svmRadial",trControl = trainControl(method = "cv", number = 3),
+# tuneGrid = expand.grid(sigma=c(0.0034),C=c(1))) 
+```
+
+```{r svm predict, message=FALSE}
+# svm_pred <- predict(model_svm_f, newdata = test_full)
+
+submission_rf <- data.frame(ImageId =1:nrow(test_full), 
+                            Label = svm_pred)
+write.csv(submission_rf, file='submission_svm_hw7.csv', row.names=FALSE, quote=FALSE)
+```
+</br> SVM gave us a prediction accuracy of 95% on Kaggle.
+![Kaggle Submission](C:\Users\vishu\OneDrive - Syracuse University\Pictures\svm.png)
+
+##Conclusion
+The simplest model, the kNN Model, had a slight advantage over the SVM model. However
+this discrepancy can be attributed to random chance, and further tuning with either model
+can lead to a better result. In terms of computation speed however, kNN was by far the
+fastest in terms of computations. This make sense due it’s simplistic nature of calculating distance in Euclidean space.
+Since our data had some heavy preprocessing, it makes sense the kNN would do well
+with the training set. Also, kNN is a technique that is often used for image classification given that images have pixels values that have a definite range and therefore don’t really have outliers (especially when techniques like removing near zero variance predictors and PCA are applied).
